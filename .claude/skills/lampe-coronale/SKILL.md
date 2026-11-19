@@ -19,9 +19,12 @@ les rotations et les coordonnées relatives (`l`, `c`, `q`, `a`) dans les chemin
 | support | `#support` | 3 pièces au sol (rotations 0/120/240°), épaisseur 20 mm. Chacune encadre 2 montants voisins. |
 | montant | `#montant` | 6 poteaux verticaux de 180 mm, section 20 (radial) × 30 (tangentiel) mm, posés sur le support. |
 | supportDouille | `#supportDouille` | Disque suspendu sous le Reuleaux, épaisseur 20 mm. |
-| trouSD | `#trouSD` | Petit trou central du supportDouille (passage du câble). |
+| trouSD | `#trouSD` | Petit trou central du supportDouille, Ø 13 mm : reçoit l'adaptateur bois de la tige filetée. |
 | triangle de Reuleaux | `#reuleaux` | Plaque de 20 mm collée sur le supportDouille, sommet vers le haut du plan (−y). |
-| trouR | `#trouR` | Grand trou central du Reuleaux (logement de la douille). |
+| trouR | `#trouR` | Grand trou central du Reuleaux, Ø 35 mm : logement de la douille. |
+| tige filetée | — | Tige filetée Ø 10 mm (non bois) qui traverse trouSD (avec adaptateur bois) et fixe la douille. |
+| douille | — | Douille E14 minimale (non bois, Ø 28 mm), posée dans trouR sur le supportDouille, traverse l'hexagone de la couronne. |
+| ampoule | — | Ampoule E14 vissée sur la douille, au-dessus de la couronne, entourée par le haut des montants. |
 | tige | `#tige` | 3 tiges cylindriques verticales (0/120/240°) qui suspendent Reuleaux + supportDouille à la couronne. |
 | couronne | — | Anneau de 6 tranches autour d'un hexagone vide ; appelée « hélice » dans d'anciens textes. |
 | tranche (de couronne) | `#trancheCouronne` | Une des 6 pièces de la couronne (rotations de 60°), épaisseur 20 mm. |
@@ -41,11 +44,19 @@ les rotations et les coordonnées relatives (`l`, `c`, `q`, `a`) dans les chemin
 | (vide) | 60 → 80 | tiges apparentes sur 20 mm |
 | couronne | 80 → 100 | collée aux montants |
 | tiges | 40 → 100 | 60 mm : traversent Reuleaux, vide et couronne |
+| tige filetée | 20 → 60 (hypothèse) | traverse trouSD, vissée ~20 mm dans la douille |
+| douille | 40 → 100 | du fond de trouR jusqu'au dessus de la couronne, à travers l'hexagone |
+| ampoule | 100 → 155 | au-dessus de la couronne, dans la « couronne » des montants (jusqu'à 200) |
 
 Les tiges traversent des trous de leur diamètre dans le Reuleaux et dans 3 des 6 tranches
 (celles qui couvrent 270°, 30° et 150°). Ces trous ne sont pas dessinés dans le SVG (le cercle
 `#tige` les représente). La hauteur de la couronne le long des montants (80 mm) découle de la
 description ; si l'utilisateur la précise autrement, change `z_couronne` (et `tige_longueur` si le vide change).
+
+**Douille et hexagone.** La douille E14 (Ø 28 mm) passe dans l'hexagone, dont le cercle inscrit mesure
+Rh·√3 (34,64 mm) ; une douille au diamètre de trouR (35 mm) n'y passerait pas. Réduire l'hexagone pour
+agrandir la couronne par l'intérieur est donc limité par la douille : `check` alerte si Rh·√3/2 < rayon de
+la douille. trouSD (Ø 13 mm) est dimensionné pour l'adaptateur bois de la tige filetée Ø 10 mm.
 
 ## Géométrie et proportions
 
@@ -84,7 +95,9 @@ Paramètres (unités SVG, 0,1 mm) : `hexagone_rayon`, `tranche_cote_court`, `mon
 `montant_largeur`, `montant_hauteur`, `epaisseur`, `support_marge`, `support_retrait`,
 `support_poignee_debut`/`_fin` (poignées de la cubique en fraction de la corde, gardées lors d'un agrandissement),
 `support_douille_rayon`, `trouSD_rayon`, `trouR_rayon`, `reuleaux_debord`, `tige_rayon`,
-`tige_distance` (nombre, ou `"auto"` pour l'optimum), et les hauteurs `z_*`, `tige_longueur`.
+`tige_distance` (nombre, ou `"auto"` pour l'optimum), les hauteurs `z_*`, `tige_longueur`, et les éléments
+électriques `electrique` (`"oui"`/`"non"`), `douille_rayon`, `z_douille_bas`/`_haut`, `tige_filetee_rayon`,
+`z_tige_filetee_bas`/`_haut`, `ampoule_rayon` (hauteurs laissées à `null` : elles suivent le Reuleaux et la couronne).
 
 ## Modifier les proportions
 
@@ -107,5 +120,10 @@ Paramètres (unités SVG, 0,1 mm) : `hexagone_rayon`, `tranche_cote_court`, `mon
 `obj` produit un fichier OBJ industriel (pas artistique) : un objet nommé par pièce (`support_1..3`,
 `montant_1..6`, `supportDouille`, `reuleaux`, `trancheCouronne_1..6`, `tige_1..3`), prismes fermés et
 orientés, trous inclus, unité mm, axe vertical Y par défaut (convention OBJ ; `--z-up` pour les outils de
-CAO). La vue de dessus n'est pas en miroir par rapport au SVG. Pour une modification de proportions, génère
+CAO). La vue de dessus n'est pas en miroir par rapport au SVG.
+
+**Option électrique, oui ou non** (`--electrique oui|non`, défaut `non` = bois seul). Si l'utilisateur ne l'a pas
+précisé, demande-lui. `oui` ajoute les trois éléments ensemble, jamais séparément : `douille`, `tigeFiletee` et
+l'ampoule (`ampoule_culot` + `ampoule_globe`). L'ampoule est une forme inventée : culot E14 apparent Ø 14 × 11 mm,
+puis globe sphérique Ø 45 mm raccordé au col, sommet à 155 mm. Pour une modification de proportions, génère
 l'OBJ à partir des paramètres modifiés. Indique les hypothèses de hauteur utilisées.

@@ -77,7 +77,7 @@ DEFAULTS = {
     "support_poignee_debut": 0.2546, # longueur poignée 1 de la cubique / corde
     "support_poignee_fin": 0.2654,   # longueur poignée 2 de la cubique / corde
     "support_douille_rayon": 300,
-    "trouSD_rayon": 50,
+    "trouSD_rayon": 65,
     "trouR_rayon": 175,
     "reuleaux_debord": 5,            # cercle inscrit du Reuleaux - rayon supportDouille
     "tige_rayon": 45,
@@ -91,7 +91,31 @@ DEFAULTS = {
     "z_couronne": 800,
     "z_tige": 400,
     "tige_longueur": 600,
+    # Option électrique : "oui" = douille + tige filetée + ampoule dans le 3D, "non" = rien
+    "electrique": "non",
+    "douille_rayon": 140,            # douille E14 minimale Ø 28 mm (doit passer l'hexagone)
+    "z_douille_bas": None,           # None = z_reuleaux (fond de trouR = dessus du supportDouille)
+    "z_douille_haut": None,          # None = dessus de la couronne (la douille traverse l'hexagone)
+    "tige_filetee_rayon": 50,        # tige filetée Ø 10 mm, dans trouSD Ø 13 mm (adaptateur bois)
+    "z_tige_filetee_bas": None,      # None = z_support_douille
+    "z_tige_filetee_haut": None,     # None = z_douille_bas + 200 (vissée 20 mm dans la douille)
+    "ampoule_rayon": 225,            # ampoule inventée : globe Ø 45 mm sur culot E14
 }
+
+
+def electrique(p):
+    """Complète les paramètres électriques laissés à None."""
+    e = {}
+    e["douille_rayon"] = p["douille_rayon"]
+    e["z_douille_bas"] = p["z_douille_bas"] if p.get("z_douille_bas") is not None else p["z_reuleaux"]
+    e["z_douille_haut"] = p["z_douille_haut"] if p.get("z_douille_haut") is not None else p["z_couronne"] + p["epaisseur"]
+    e["tige_filetee_rayon"] = p["tige_filetee_rayon"]
+    e["z_tige_filetee_bas"] = (p["z_tige_filetee_bas"] if p.get("z_tige_filetee_bas") is not None
+                               else p["z_support_douille"])
+    e["z_tige_filetee_haut"] = (p["z_tige_filetee_haut"] if p.get("z_tige_filetee_haut") is not None
+                                else e["z_douille_bas"] + 200)
+    e["ampoule_rayon"] = p["ampoule_rayon"]
+    return e
 
 
 def load_params(path):
@@ -326,6 +350,23 @@ def check(p):
         warn("trouR plus grand que supportDouille.")
     if p["trouSD_rayon"] >= p["trouR_rayon"]:
         warn("trouSD n'est pas plus petit que trouR.")
+    el = electrique(p)
+    rep["electrique"] = {k: round(v, 3) for k, v in el.items()}
+    rep["electrique"]["option"] = p.get("electrique", "non")
+    if p["trouSD_rayon"] < el["tige_filetee_rayon"]:
+        warn("trouSD (%s) trop petit pour la tige filetée (rayon %s)." % (p["trouSD_rayon"], el["tige_filetee_rayon"]))
+    else:
+        ok("Tige filetée Ø%.1f mm dans trouSD Ø%.1f mm" % (el["tige_filetee_rayon"] / 5, p["trouSD_rayon"] / 5))
+    if el["douille_rayon"] > p["trouR_rayon"]:
+        warn("La douille (rayon %s) ne rentre pas dans trouR (%s)." % (el["douille_rayon"], p["trouR_rayon"]))
+    apo = p["hexagone_rayon"] * SQ3 / 2
+    if el["z_douille_haut"] > p["z_couronne"]:
+        if el["douille_rayon"] > apo:
+            warn("La douille (rayon %.1f) ne passe pas dans l'hexagone (apothème %.1f)." % (el["douille_rayon"], apo))
+        else:
+            ok("Douille Ø%.1f mm dans l'hexagone (cercle inscrit Ø%.2f mm)" % (el["douille_rayon"] / 5, apo / 5))
+    if el["ampoule_rayon"] >= derived(p)["r1"]:
+        warn("L'ampoule touche les montants.")
     cl = tige_clearances(p, p["tige_distance"])
     ropt, sopt = tige_optimum(p)
     rep["tige"] = {"distance": p["tige_distance"],
@@ -631,6 +672,25 @@ class Obj:
                 i, j = seq[k], seq[(k + 1) % len(seq)]
                 self.lines.append("f %d %d %d %d" % (bot[i], bot[j], top[j], top[i]))
 
+    def revolve(self, name, profile, seg):
+        """Solide de révolution autour de l'axe de la lampe. profile = [(r, z), ...] du bas vers le haut,
+        commençant et finissant sur l'axe (r = 0)."""
+        self.lines.append("o %s" % name)
+        rings = []
+        for r, z in profile:
+            if r == 0:
+                rings.append([self.vert(0, 0, z)] * seg)
+            else:
+                rings.append([self.vert(r * math.cos(2 * math.pi * k / seg),
+                                        r * math.sin(2 * math.pi * k / seg), z) for k in range(seg)])
+        for a, b in zip(rings, rings[1:]):
+            for k in range(seg):
+                k2 = (k + 1) % seg
+                q = [a[k], a[k2], b[k2], b[k]]
+                q = [v for n, v in enumerate(q) if v not in q[:n]]
+                if len(q) >= 3:
+                    self.lines.append("f " + " ".join(map(str, q)))
+
     def text(self, header):
         out = [header]
         out += ["v %.4f %.4f %.4f" % q for q in self.v]
@@ -640,8 +700,10 @@ class Obj:
         return "\n".join(out) + "\n"
 
 
-def build_obj(p, zup=False, seg=48):
+def build_obj(p, zup=False, seg=48, electro=None):
     p = resolve(p)
+    if electro is None:
+        electro = str(p.get("electrique", "non")).lower() == "oui"
     d = derived(p)
     o = Obj(zup)
     ep = p["epaisseur"]
@@ -665,6 +727,23 @@ def build_obj(p, zup=False, seg=48):
     for k, c in enumerate(tc):
         o.prism("tige_%d" % (k + 1), circle_points(c[0], c[1], p["tige_rayon"], seg), [],
                 p["z_tige"], p["tige_longueur"])
+    if electro:
+        el = electrique(p)
+        o.prism("douille", circle_points(0, 0, el["douille_rayon"], seg * 2), [],
+                el["z_douille_bas"], el["z_douille_haut"] - el["z_douille_bas"])
+        o.prism("tigeFiletee", circle_points(0, 0, el["tige_filetee_rayon"], seg), [],
+                el["z_tige_filetee_bas"], el["z_tige_filetee_haut"] - el["z_tige_filetee_bas"])
+        # Ampoule inventée : culot E14 apparent (Ø 14, 11 mm) puis globe sphérique raccordé au col.
+        z0, rc, Rg = el["z_douille_haut"], 70, el["ampoule_rayon"]
+        o.revolve("ampoule_culot", [(0, z0), (rc, z0), (rc, z0 + 110), (0, z0 + 110)], seg)
+        a0 = math.acos(rc / Rg)                 # angle (sous l'équateur) où le globe rejoint le col
+        zc = z0 + 110 + Rg * math.sin(a0)
+        prof = [(0, z0 + 110)]
+        n = 24
+        for i in range(n + 1):
+            a = -a0 + (math.pi / 2 + a0) * i / n
+            prof.append((Rg * math.cos(a) if i < n else 0, zc + Rg * math.sin(a)))
+        o.revolve("ampoule_globe", prof, seg)
     hdr = "# Lampe coronale - unite : mm - axe vertical : %s\n# genere par coronale.py" % ("Z" if zup else "Y")
     return o.text(hdr)
 
@@ -680,6 +759,8 @@ def main():
     a = sp.add_parser("obj"); a.add_argument("params"); a.add_argument("-o")
     a.add_argument("--z-up", action="store_true", help="axe vertical Z (défaut : Y, convention OBJ)")
     a.add_argument("--segments", type=int, default=48)
+    a.add_argument("--electrique", choices=["oui", "non"],
+                   help="oui = douille + tige filetée + ampoule ; non = bois seul (défaut : paramètre electrique)")
     args = ap.parse_args()
     for st in (sys.stdout, sys.stderr):
         try:
@@ -718,7 +799,7 @@ def main():
             src = fh.read()
         out(apply(load_params(args.params), src), args.o or args.src)
     elif args.cmd == "obj":
-        out(build_obj(load_params(args.params), args.z_up, args.segments), args.o)
+        out(build_obj(load_params(args.params), args.z_up, args.segments, None if args.electrique is None else args.electrique == "oui"), args.o)
 
 
 if __name__ == "__main__":

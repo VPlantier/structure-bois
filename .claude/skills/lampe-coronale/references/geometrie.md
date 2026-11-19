@@ -63,6 +63,16 @@ les montants et les courbes sont recalculées avec les mêmes fractions de poign
   Chemin : `M 0 −W/√3 a W W 0 0 1 W/2 W√3/2 a W W 0 0 1 −W 0 a W W 0 0 1 W/2 −W√3/2 z`.
 - trouR : rayon [175], centré.
 
+## Douille, tige filetée, ampoule (hors bois, option électrique)
+
+- trouSD Ø 13 mm [rayon 65] : logement de l'adaptateur bois de la tige filetée Ø 10 mm.
+- Douille E14 minimale Ø 28 mm [rayon 140], du fond de trouR (dessus du supportDouille, z 40 mm) jusqu'au
+  dessus de la couronne (z 100 mm), à travers l'hexagone. Condition : rayon douille ≤ Rh·√3/2 [173,2].
+  trouR [rayon 175] est plus large que la douille.
+- Tige filetée : de z 20 à 60 mm (hypothèse : vissée 20 mm dans la douille).
+- Ampoule (forme inventée) : culot cylindrique Ø 14 mm de z 100 à 111 mm, puis globe sphérique de rayon
+  [225] dont le bas rejoint le culot ; sommet à 155 mm, entouré par les montants (face intérieure à r1).
+
 ## Tiges
 
 Centres à la distance D du centre, dans les directions 270°, 30°, 150° : la tige est sur la bissectrice
