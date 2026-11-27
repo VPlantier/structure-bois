@@ -6,7 +6,7 @@ Sous-commandes :
   check    <params.json>                          vérifie les contraintes, calcule la tige optimale
   svg      <params.json> [-o defs.svg]            produit les <path>/<circle> du plan de coupe
   apply    <params.json> <fichier.html> [-o out]  réécrit les pièces dans le fichier HTML/SVG
-  obj      <params.json> [-o lampe.obj]           produit un modèle 3D (mm)
+  obj      <params.json> [-o lampe.obj]           produit un modèle 3D (mm) + lampe.mtl + bois.png
 
 Toutes les longueurs des paramètres sont en unités SVG (0,1 mm), comme le fichier source.
 Bibliothèque standard uniquement (Python 3.8+).
@@ -14,7 +14,9 @@ Bibliothèque standard uniquement (Python 3.8+).
 import argparse
 import json
 import math
+import os
 import re
+import shutil
 import sys
 
 SQ3 = math.sqrt(3.0)
@@ -91,6 +93,10 @@ DEFAULTS = {
     "z_couronne": 800,
     "z_tige": 400,
     "tige_longueur": 600,
+    # Joint de colle époxy entre tranches voisines (1 mm) : le groupe #secteurCouronne (tranche + montant
+    # collé sur sa face) porte translate(-8.66,-5), soit colle_epaisseur le long de la bissectrice. Seul le
+    # 1er SVG l'utilise ; les plans de débit utilisent #trancheCouronne / #montant sans translate.
+    "colle_epaisseur": 10,
     # Option électrique : "oui" = douille + tige filetée + ampoule dans le 3D, "non" = rien
     "electrique": "non",
     "douille_rayon": 140,            # douille E14 minimale Ø 28 mm (doit passer l'hexagone)
@@ -134,7 +140,39 @@ def derived(p):
     d["tranche_face_montant"] = (2 * d["r2"] - d["r1"]) / SQ3  # côté perpendiculaire au côté court
     d["reuleaux_largeur"] = (p["support_douille_rayon"] + p["reuleaux_debord"]) / (1 - 1 / SQ3)
     d["reuleaux_rayon_sommet"] = d["reuleaux_largeur"] / SQ3
+    g = p.get("colle_epaisseur", 0) or 0
+    d["hexagone_apotheme"] = p["hexagone_rayon"] * SQ3 / 2 + g   # hexagone vide après translation
     return d
+
+
+# ---------------------------------------------------------------- joint de colle
+def colle_translation(p):
+    """Translation de la tranche de base (180°-240°) : colle_epaisseur le long de sa bissectrice (210°).
+    Elle l'écarte de colle/2 de chacun de ses deux rayons (g·sin 30° = g/2) : deux tranches voisines sont
+    donc séparées de colle_epaisseur, et le côté d'hexagone recule de g (l'hexagone reste régulier)."""
+    g = p.get("colle_epaisseur", 0) or 0
+    return mul(u(210), g)
+
+
+def translate_attr(p):
+    t = colle_translation(p)
+    return "translate(%s,%s)" % (f(t[0]), f(t[1]))
+
+
+def placed(P, p, k=0):
+    """Points de la pièce de base, translatés (joint de colle) puis tournés de 60°·k, comme dans le 1er SVG."""
+    t = colle_translation(p)
+    return [rot(add(q, t), 60 * k) for q in P]
+
+
+def colle_points(p, theta=180):
+    """Joint de colle sur le rayon theta : du sommet de l'hexagone jusqu'au bout du côté long (r2),
+    entre le côté long d'une tranche et le côté court de la voisine prolongé par son montant."""
+    g = p.get("colle_epaisseur", 0) or 0
+    d = derived(p)
+    s = g * SQ3 / 2                      # recul radial des côtés radiaux translatés
+    a, b = p["hexagone_rayon"] + s, d["r2"] + s
+    return [pt(a, -g / 2, theta), pt(b, -g / 2, theta), pt(b, g / 2, theta), pt(a, g / 2, theta)]
 
 
 # ---------------------------------------------------------------- géométrie 2D
@@ -299,7 +337,7 @@ def inside(q, P):
 
 def tige_clearances(p, dist):
     q = (0.0, -dist)
-    tr = [rot(x, 60) for x in tranche_points(p)]   # tranche qui reçoit la tige à 270°
+    tr = placed(tranche_points(p), p, 1)            # tranche (translatée) qui reçoit la tige à 270°
     rl = reuleaux_points(p, 400)
     rt = p["tige_rayon"]
     d_tr = poly_dist(q, tr) if inside(q, tr) else -poly_dist(q, tr)
@@ -359,7 +397,20 @@ def check(p):
         ok("Tige filetée Ø%.1f mm dans trouSD Ø%.1f mm" % (el["tige_filetee_rayon"] / 5, p["trouSD_rayon"] / 5))
     if el["douille_rayon"] > p["trouR_rayon"]:
         warn("La douille (rayon %s) ne rentre pas dans trouR (%s)." % (el["douille_rayon"], p["trouR_rayon"]))
-    apo = p["hexagone_rayon"] * SQ3 / 2
+    apo = d["hexagone_apotheme"]
+    g = p.get("colle_epaisseur", 0) or 0
+    t = colle_translation(p)
+    s, m = g * SQ3 / 2, p["support_marge"]
+    rep["colle"] = {"epaisseur": g, "translate_tranche_base": translate_attr(p),
+                    "apotheme_hexagone": round(apo, 3),
+                    "marges_support_effectives": {"interieure": round(m + s, 3), "exterieure": round(m - s, 3),
+                                                  "cote_tranche": round(m + g / 2, 3),
+                                                  "cote_oppose": round(m - g / 2, 3)}}
+    if g:
+        ok("Joint de colle %.1f mm : tranches et montants translatés de (%.3f, %.3f), hexagone d'apothème %.1f"
+           % (g / 10, t[0], t[1], apo))
+    if min(m - s, m - g / 2) < 0:
+        warn("Le joint de colle fait sortir les montants de leur cadre de support.")
     if el["z_douille_haut"] > p["z_couronne"]:
         if el["douille_rayon"] > apo:
             warn("La douille (rayon %.1f) ne passe pas dans l'hexagone (apothème %.1f)." % (el["douille_rayon"], apo))
@@ -377,8 +428,7 @@ def check(p):
     if abs(ropt - p["tige_distance"]) > 5:
         warn("tige_distance (%.1f) s'écarte de l'optimum (%.1f) de plus de 0,5 mm."
              % (p["tige_distance"], ropt))
-    hexa_ap = p["hexagone_rayon"] * SQ3 / 2
-    if p["tige_distance"] - p["tige_rayon"] < hexa_ap:
+    if p["tige_distance"] - p["tige_rayon"] < apo:
         warn("La tige mord sur l'hexagone central.")
     g = support_geom(p)
     if p["support_retrait"] < 0 or p["support_retrait"] > p["montant_largeur"] + 2 * p["support_marge"]:
@@ -436,6 +486,12 @@ def parse_path(d):
     return out
 
 
+def use_translate(tr):
+    """Translation lue dans un attribut transform (« translate(x,y) »)."""
+    m = re.search(r"translate\(\s*(" + NUM + r")[\s,]+(" + NUM + r")\s*\)", tr or "")
+    return (float(m.group(1)), float(m.group(2))) if m else (0.0, 0.0)
+
+
 def attr(src, el_id, name):
     m = re.search(r'<[^>]*\bid="%s"[^>]*>' % re.escape(el_id), src)
     if not m:
@@ -480,6 +536,27 @@ def extract(src):
     rl = parse_path(attr(src, "reuleaux", "d"))
     W = rl[1][1][0][0]
     p["reuleaux_debord"] = round(W * (1 - 1 / SQ3) - p["support_douille_rayon"], 3)
+    # Joint de colle : un seul translate, sur le groupe #secteurCouronne (tranche + montant) des <defs>,
+    # que seul le 1er SVG utilise (6 rotations). Les plans de débit utilisent #trancheCouronne / #montant.
+    for el in ("trancheCouronne", "montant"):
+        if re.search(r'<path[^>]*\bid="%s"[^>]*\btransform=' % el, src):
+            notes.append("#%s porte un transform : il décale aussi les plans de débit ; le joint de colle se met "
+                         "sur #secteurCouronne (apply le corrige)" % el)
+    m = re.search(r'<g[^>]*\bid="secteurCouronne"[^>]*>', src)
+    if not m:
+        notes.append("Groupe #secteurCouronne introuvable : joint de colle supposé nul")
+    tm = re.search(r'\btransform="([^"]*)"', m.group(0)) if m else None
+    t0 = use_translate(tm.group(1) if tm else "")
+    g = norm(t0)
+    p["colle_epaisseur"] = round(g, 3)
+    if g > 1e-9:
+        ang = math.degrees(math.atan2(t0[1], t0[0])) % 360
+        if abs(ang - 210) > 0.05:
+            good = colle_translation(p)
+            notes.append("translate(%s,%s) n'est pas sur la bissectrice de la tranche (%.2f° au lieu de 210°) : "
+                         "l'hexagone central n'est plus régulier et les joints ne sont pas parallèles. "
+                         "Pour un joint de %.2f mm : translate(%s,%s)"
+                         % (f(t0[0]), f(t0[1]), ang, g / 10, f(good[0]), f(good[1])))
     # Vérifie que la régénération redonne bien les chemins du fichier
     for el, fn in (("trancheCouronne", tranche_d), ("montant", montant_d), ("support", support_d),
                    ("reuleaux", reuleaux_d)):
@@ -516,6 +593,12 @@ def apply(p, src):
     p = resolve(p)
     for k, v in svg_defs(p).items():
         src = set_attr(src, k, "d", v)
+    # joint de colle : un seul translate sur #secteurCouronne, jamais sur les chemins (plans de débit)
+    for el in ("trancheCouronne", "montant"):
+        src = re.sub(r'(<path[^>]*\bid="%s"[^>]*?)\s+transform="[^"]*"' % el, r"\1", src, count=1)
+    if not re.search(r'<g[^>]*\bid="secteurCouronne"[^>]*\btransform=', src):
+        raise SystemExit("ERREUR : groupe #secteurCouronne (avec transform) introuvable")
+    src = set_attr(src, "secteurCouronne", "transform", translate_attr(p))
     src = set_attr(src, "tige", "cy", f(-p["tige_distance"]))
     src = set_attr(src, "tige", "cx", "0")
     src = set_attr(src, "tige", "r", f(p["tige_rayon"]))
@@ -640,9 +723,22 @@ def in_tri(Q, A, B, C):
     return not (neg and pos)
 
 
+MAT_BOIS = "bois"                  # texture versionnée assets/bois.png (fil du bois = axe v de l'image)
+MAT_AJOUT = "gris_bleute"          # tout ce qui n'est pas en bois : colle, douille, tige filetée, ampoule
+TEXTURE_BOIS = "bois.png"
+TEXTURE_TAILLE = 600               # une répétition de la texture (128 px) couvre 60 mm (unités SVG)
+
+
+def mtl_text():
+    return ("# Materiaux de la lampe coronale (coronale.py)\n"
+            "newmtl %s\nKa 1 1 1\nKd 1 1 1\nKs 0.05 0.05 0.05\nNs 20\nd 1\nillum 2\nmap_Kd %s\n\n"
+            "newmtl %s\nKa 0.80 0.84 0.90\nKd 0.80 0.84 0.90\nKs 0.2 0.2 0.2\nNs 60\nd 1\nillum 2\n"
+            % (MAT_BOIS, TEXTURE_BOIS, MAT_AJOUT))
+
+
 class Obj:
     def __init__(self, zup=False):
-        self.v, self.lines, self.zup = [], [], zup
+        self.v, self.vt, self.lines, self.zup = [], [], [], zup
 
     def vert(self, x, y, z):
         """x, y : plan SVG (0,1 mm) ; z : hauteur (0,1 mm). Sortie en mm."""
@@ -650,14 +746,29 @@ class Obj:
         self.v.append((X, Y, Z) if self.zup else (X, Z, -Y))
         return len(self.v)
 
-    def prism(self, name, outer, holes, z0, h):
+    def tex(self, a, b):
+        self.vt.append((a / TEXTURE_TAILLE, b / TEXTURE_TAILLE))
+        return len(self.vt)
+
+    def face(self, vs, ts=None):
+        self.lines.append("f " + " ".join("%d/%d" % (v, t) if ts else "%d" % v
+                                          for v, t in zip(vs, ts or vs)))
+
+    def prism(self, name, outer, holes, z0, h, mat=MAT_AJOUT, fil=None):
+        """Prisme droit. fil = None (pas d'UV), ("plat", angle) : plaque dont le fil suit la direction
+        angle (°) du plan, ou ("debout", 0) : pièce dont le fil est vertical (montants, tiges)."""
         self.lines.append("o %s" % name)
+        self.lines.append("usemtl %s" % mat)
         pts, tris = triangulate(outer, holes)
         bot = [self.vert(q[0], q[1], z0) for q in pts]
         top = [self.vert(q[0], q[1], z0 + h) for q in pts]
+        tt = None
+        if fil:
+            qq = [rot(q, -fil[1]) for q in pts]          # le fil devient l'axe x -> axe v de la texture
+            tt = [self.tex(q[1], q[0]) for q in qq]
         for a, b, c in tris:   # tris : sens horaire à l'écran = anti-horaire vu de dessus (y inversé)
-            self.lines.append("f %d %d %d" % (top[a], top[b], top[c]))
-            self.lines.append("f %d %d %d" % (bot[c], bot[b], bot[a]))
+            self.face([top[a], top[b], top[c]], tt and [tt[a], tt[b], tt[c]])
+            self.face([bot[c], bot[b], bot[a]], tt and [tt[c], tt[b], tt[a]])
         rings = [list(range(len(outer)))]
         off = len(outer)
         for hh in holes:
@@ -668,14 +779,24 @@ class Obj:
             outward_cw = poly_area(ring_pts) > 0          # horaire écran
             want_cw = (r_i == 0)
             seq = r if outward_cw == want_cw else r[::-1]
+            s = 0.0
             for k in range(len(seq)):
                 i, j = seq[k], seq[(k + 1) % len(seq)]
-                self.lines.append("f %d %d %d %d" % (bot[i], bot[j], top[j], top[i]))
+                ts = None
+                if fil:
+                    s2 = s + norm(sub(pts[j], pts[i]))
+                    if fil[0] == "debout":   # fil vertical : v = hauteur
+                        ts = [self.tex(s, z0), self.tex(s2, z0), self.tex(s2, z0 + h), self.tex(s, z0 + h)]
+                    else:                    # fil horizontal le long du chant : v = abscisse
+                        ts = [self.tex(z0, s), self.tex(z0, s2), self.tex(z0 + h, s2), self.tex(z0 + h, s)]
+                    s = s2
+                self.face([bot[i], bot[j], top[j], top[i]], ts)
 
-    def revolve(self, name, profile, seg):
+    def revolve(self, name, profile, seg, mat=MAT_AJOUT):
         """Solide de révolution autour de l'axe de la lampe. profile = [(r, z), ...] du bas vers le haut,
         commençant et finissant sur l'axe (r = 0)."""
         self.lines.append("o %s" % name)
+        self.lines.append("usemtl %s" % mat)
         rings = []
         for r, z in profile:
             if r == 0:
@@ -691,44 +812,50 @@ class Obj:
                 if len(q) >= 3:
                     self.lines.append("f " + " ".join(map(str, q)))
 
-    def text(self, header):
-        out = [header]
+    def text(self, header, mtllib=None):
+        out = [header] + (["mtllib %s" % mtllib] if mtllib else [])
         out += ["v %.4f %.4f %.4f" % q for q in self.v]
+        out += ["vt %.5f %.5f" % q for q in self.vt]
         # les faces sont construites dans le repère écran (y vers le bas) : on inverse
         # l'ordre pour obtenir des normales sortantes dans le repère 3D direct
         out += [" ".join(["f"] + l.split()[:0:-1]) if l.startswith("f ") else l for l in self.lines]
         return "\n".join(out) + "\n"
 
 
-def build_obj(p, zup=False, seg=48, electro=None):
+def build_obj(p, zup=False, seg=48, electro=None, mtllib=None):
+    """Structure bois seule (electro False) : uniquement les pièces du 1er SVG, matériau bois texturé.
+    Structure complète (electro True) : + joints de colle, douille, tige filetée, ampoule (gris bleuté)."""
     p = resolve(p)
     if electro is None:
         electro = str(p.get("electrique", "non")).lower() == "oui"
-    d = derived(p)
     o = Obj(zup)
     ep = p["epaisseur"]
+    B = MAT_BOIS
     for k in range(3):
         o.prism("support_%d" % (k + 1), [rot(q, 120 * k) for q in support_points(p)], [],
-                p["z_support"], ep)
+                p["z_support"], ep, B, ("plat", 210 + 120 * k))
     for k in range(6):
-        o.prism("montant_%d" % (k + 1), [rot(q, 60 * k) for q in montant_points(p)], [],
-                p["z_montant"], p["montant_hauteur"])
+        o.prism("montant_%d" % (k + 1), placed(montant_points(p), p, k), [],
+                p["z_montant"], p["montant_hauteur"], B, ("debout", 0))
     o.prism("supportDouille", circle_points(0, 0, p["support_douille_rayon"], seg * 2),
-            [circle_points(0, 0, p["trouSD_rayon"], seg)], p["z_support_douille"], ep)
+            [circle_points(0, 0, p["trouSD_rayon"], seg)], p["z_support_douille"], ep, B, ("plat", 270))
     tc = tige_centres(p)
     rholes = [circle_points(0, 0, p["trouR_rayon"], seg)] + \
              [circle_points(c[0], c[1], p["tige_rayon"], seg) for c in tc]
-    o.prism("reuleaux", reuleaux_points(p), rholes, p["z_reuleaux"], ep)
+    o.prism("reuleaux", reuleaux_points(p), rholes, p["z_reuleaux"], ep, B, ("plat", 270))
     base = tranche_points(p)
     for k in range(6):
-        P = [rot(q, 60 * k) for q in base]
+        P = placed(base, p, k)
         holes = [circle_points(c[0], c[1], p["tige_rayon"], seg) for c in tc if inside(c, P)]
-        o.prism("trancheCouronne_%d" % (k + 1), P, holes, p["z_couronne"], ep)
+        o.prism("trancheCouronne_%d" % (k + 1), P, holes, p["z_couronne"], ep, B, ("plat", 240 + 60 * k))
     for k, c in enumerate(tc):
         o.prism("tige_%d" % (k + 1), circle_points(c[0], c[1], p["tige_rayon"], seg), [],
-                p["z_tige"], p["tige_longueur"])
+                p["z_tige"], p["tige_longueur"], B, ("debout", 0))
     if electro:
         el = electrique(p)
+        if p.get("colle_epaisseur"):
+            for k in range(6):   # joint sur chaque rayon 180° + 60°·k, à la hauteur de la couronne
+                o.prism("colle_%d" % (k + 1), colle_points(p, 180 + 60 * k), [], p["z_couronne"], ep)
         o.prism("douille", circle_points(0, 0, el["douille_rayon"], seg * 2), [],
                 el["z_douille_bas"], el["z_douille_haut"] - el["z_douille_bas"])
         o.prism("tigeFiletee", circle_points(0, 0, el["tige_filetee_rayon"], seg), [],
@@ -744,8 +871,9 @@ def build_obj(p, zup=False, seg=48, electro=None):
             a = -a0 + (math.pi / 2 + a0) * i / n
             prof.append((Rg * math.cos(a) if i < n else 0, zc + Rg * math.sin(a)))
         o.revolve("ampoule_globe", prof, seg)
-    hdr = "# Lampe coronale - unite : mm - axe vertical : %s\n# genere par coronale.py" % ("Z" if zup else "Y")
-    return o.text(hdr)
+    hdr = "# Lampe coronale - unite : mm - axe vertical : %s - %s\n# genere par coronale.py" % (
+        "Z" if zup else "Y", "structure complete" if electro else "structure 100 % bois")
+    return o.text(hdr, mtllib)
 
 
 # ---------------------------------------------------------------- CLI
@@ -799,7 +927,19 @@ def main():
             src = fh.read()
         out(apply(load_params(args.params), src), args.o or args.src)
     elif args.cmd == "obj":
-        out(build_obj(load_params(args.params), args.z_up, args.segments, None if args.electrique is None else args.electrique == "oui"), args.o)
+        # lampe.obj -> lampe.mtl + bois.png (copie de la texture versionnée assets/bois.png) à côté
+        stem = os.path.splitext(args.o)[0] if args.o else "lampe"
+        mtl = os.path.basename(stem) + ".mtl"
+        el = None if args.electrique is None else args.electrique == "oui"
+        out(build_obj(load_params(args.params), args.z_up, args.segments, el, mtl), args.o)
+        if args.o:
+            dst = os.path.dirname(os.path.abspath(args.o))
+            out(mtl_text(), os.path.join(dst, mtl))
+            src_tex = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", TEXTURE_BOIS)
+            shutil.copyfile(src_tex, os.path.join(dst, TEXTURE_BOIS))
+            print("copié :", os.path.join(dst, TEXTURE_BOIS), file=sys.stderr)
+        else:
+            print("(sans -o : %s et %s non écrits)" % (mtl, TEXTURE_BOIS), file=sys.stderr)
 
 
 if __name__ == "__main__":

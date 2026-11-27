@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 *-workspace/
 .claude/settings.local.json
+3d/

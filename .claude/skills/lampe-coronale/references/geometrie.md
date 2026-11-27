@@ -31,6 +31,24 @@ la face 2→3 de la tranche k+1 et au côté long de la tranche k. D'où **côt�
 Encombrement d'une tranche (débit) : largeur r1 − Rh/2 [450], hauteur r2·√3/2 [649,519]. Le plan de débit
 utilise une largeur de 455 (0,5 mm de jeu).
 
+## Joint de colle (1er SVG uniquement)
+
+g = colle_epaisseur [10]. La tranche de base et le montant collé sur sa face 2→3 sont translatés de
+T = g·u(210) = (−g·√3/2, −g/2) [(−8,660 ; −5)] : un seul `translate(-8.66,-5)`, sur le groupe
+`#secteurCouronne` (tranche + montant) que le 1er SVG répète par `rotate(60·k)`.
+
+- Écart à chacun des deux rayons de la tranche : g·sin 30° = g/2 → joint de g entre tranches voisines.
+- Composante le long de la bissectrice : g → chaque côté d'hexagone recule de g ; l'hexagone vide reste régulier,
+  d'apothème Rh·√3/2 + g [183,2]. Les côtés radiaux translatés sont décalés radialement de g·√3/2 [8,66] : leurs
+  extrémités intérieures (Rh + g√3/2 sur le rayon, ±g/2 en tangentiel) restent à g/√3 [5,77] du sommet de l'hexagone.
+- Toute autre translation (par ex. (−10, 10)) n'est pas sur la bissectrice : joints non parallèles, hexagone irrégulier.
+- Couche de colle (3D, structure complète) sur le rayon θ = 180° + 60°·k : ρ ∈ [Rh + g√3/2, r2 + g√3/2],
+  τ ∈ [−g/2, g/2], z de la couronne. Elle touche le côté long de la tranche k−1 d'un côté, le côté court de la
+  tranche k puis son montant de l'autre.
+- Montant translaté avec sa tranche ; support, Reuleaux, supportDouille et tiges non translatés. Les marges du
+  cadre de support deviennent m ± g√3/2 en radial et m ± g/2 en tangentiel.
+- SVG 2 à 4 : aucun translate (pièces dessinées comme sans joint).
+
 ## Montant (`#montant`)
 
 Rectangle radial [r1, r2] × tangentiel [0, w] autour du rayon 180°, du côté des angles croissants (−y) :
@@ -87,7 +105,7 @@ Jeux (bord à bord, tige comprise) en fonction de D :
 - trouR : D − R_trouR − rayon.
 
 Règle de conception : D maximise le minimum de ces jeux (`tige_distance: "auto"`). Actuellement D = 280
-pour un optimum de 285,2 (jeu mini 60 contre 65,2). Pour que l'optimum soit atteignable, le Reuleaux doit
+pour un optimum de 289,8 avec le joint de colle (285,2 sans ; jeu mini 51,8 contre 61,6). Pour que l'optimum soit atteignable, le Reuleaux doit
 être orienté sommet vers la tige et assez grand pour que tige + trouR tiennent entre le centre et le sommet.
 
 ## Plans de débit (SVG 2 à 4)
