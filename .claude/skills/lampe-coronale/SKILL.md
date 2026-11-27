@@ -77,12 +77,21 @@ le long de sa bissectrice (210°), donc de 0,5 mm perpendiculairement à chacun 
 translation qui laisse un joint de 1 mm entre voisines **et** garde l'hexagone central régulier : chaque côté
 d'hexagone recule de 1 mm (apothème 17,32 → 18,32 mm) et les joints pointent vers les sommets sans les atteindre.
 Un `translate(-10,10)` (ou toute direction autre que 210°) déforme l'hexagone : `extract` le signale et donne la bonne valeur.
+L'épaisseur en mm ne se lit pas dans le translate : `apply` écrit juste avant le groupe le commentaire
+`<!-- … joint de colle de 1 mm … ; écrit par coronale.py apply -->`, et `extract` signale s'il ne concorde plus
+avec le translate. C'est le translate qui fait foi ; le commentaire n'est qu'une recopie lisible.
 Le montant suit la tranche sur la face 2→3 de laquelle il est collé (même translation) ; le joint se prolonge donc
 de l'hexagone jusqu'à r2, entre le côté long d'une tranche et [côté court de la voisine + montant].
 
 - **Ne jamais mettre le translate sur `#trancheCouronne` ou `#montant` eux-mêmes** : les plans de débit (SVG 2 à 4)
-  les utilisent directement et doivent rester dessinés comme sans joint. Le support n'est pas translaté (marges
-  effectives 4,1/5,9 mm en radial et 4,5/5,5 mm en tangentiel au lieu de 5 mm, rapportées par `check`).
+  les utilisent directement et doivent rester dessinés comme sans joint.
+- **Le support suit les montants, il ne se translate pas : il se déforme.** Chaque cadre reste à 5 mm du montant
+  *posé* (joint compris). Les deux montants d'un support appartiennent à deux secteurs voisins et ne bougent pas
+  dans la même direction (t et t tourné de 60°) ; dans le repère local de chaque montant, le décalage vaut
+  (g√3/2 radial, g/2 tangentiel) = (0,87 ; 0,5) mm. Le chemin `#support` lui-même est donc recalculé (cadres,
+  cubique, quadratique) — contrairement aux tranches, le plan de débit du support a la forme déformée, car c'est
+  la pièce réelle. Dans le 3ᵉ SVG, les repères de montants de `#supportPlein` portent la même translation
+  (écrite par `apply`). `check` donne les marges réelles des deux cadres (`support_marges_reelles`, toutes à 5 mm).
 - Les tiges ne bougent pas : leur trou dans la tranche est décalé de 1 mm par rapport à la tranche (jeux recalculés
   par `check` avec les tranches translatées).
 
@@ -97,13 +106,15 @@ L'essentiel :
   Le montant se loge dans l'encoche entre le bout du côté court d'une tranche et le côté long de la voisine.
 - **Agrandir la couronne** : par l'extérieur (allonger le côté court ; le côté long suit) ou par l'intérieur
   (réduire l'hexagone, Rh). Les montants ne changent pas de section, ils se déplacent avec r1.
-- **Support** : deux cadres (montant + 5 mm de marge) autour des montants à 180° et 240°, reliés à
-  l'extérieur par une cubique et à l'intérieur par une quadratique, tangentes aux côtés des cadres (courbe
-  lisse). Il se déforme automatiquement quand la couronne change.
+- **Support** : deux cadres (montant + 5 mm de marge) autour des montants à 180° et 240° **tels qu'ils sont
+  posés** (joint de colle compris), reliés à l'extérieur par une cubique et à l'intérieur par une quadratique,
+  tangentes aux côtés des cadres (courbe lisse). Il dépend de la position des montants, pas seulement de r1/r2 :
+  il se déforme automatiquement quand la couronne **ou le joint de colle** change.
 - **Reuleaux** : son cercle inscrit dépasse le supportDouille de 0,5 mm (largeur = (R_SD + 5)/(1 − 1/√3)).
 - **Tiges** : sur la bissectrice d'une tranche (270°, 30°, 150°), à la distance du centre qui maximise le
-  plus petit jeu par rapport aux bords de la tranche, du Reuleaux et de trouR. Dans le fichier actuel la tige
-  est à 28,0 mm alors que l'optimum calculé est 29,0 mm (28,5 mm sans le joint de colle) : signale-le si tu recalcules, sans le corriger d'office.
+  plus petit jeu par rapport aux bords de la tranche (translatée par le joint), du Reuleaux et de trouR.
+  C'est une **cote dérivée** comme r2 : `extract` rend `tige_distance: "auto"` (et signale l'écart du fichier),
+  `apply` replace les tiges et leurs repères de perçage à l'optimum.
 
 ## Outil : `scripts/coronale.py`
 
@@ -123,23 +134,45 @@ Paramètres (unités SVG, 0,1 mm) : `hexagone_rayon`, `tranche_cote_court`, `mon
 `montant_largeur`, `montant_hauteur`, `epaisseur`, `support_marge`, `support_retrait`,
 `support_poignee_debut`/`_fin` (poignées de la cubique en fraction de la corde, gardées lors d'un agrandissement),
 `support_douille_rayon`, `trouSD_rayon`, `trouR_rayon`, `reuleaux_debord`, `tige_rayon`,
-`tige_distance` (nombre, ou `"auto"` pour l'optimum), les hauteurs `z_*`, `tige_longueur`, et les éléments
+`tige_distance` (`"auto"` = optimum, par défaut ; un nombre seulement si l'utilisateur impose la cote), les hauteurs `z_*`, `tige_longueur`, et les éléments
 électriques `electrique` (`"oui"`/`"non"`), `douille_rayon`, `z_douille_bas`/`_haut`, `tige_filetee_rayon`,
 `z_tige_filetee_bas`/`_haut`, `ampoule_rayon` (hauteurs laissées à `null` : elles suivent le Reuleaux et la couronne),
 et `colle_epaisseur` (joint entre tranches, 10 = 1 mm ; 0 = pas de joint). `apply` écrit le translate sur `#secteurCouronne`
 et retire tout `transform` mis par erreur sur les chemins `#trancheCouronne` / `#montant`.
+
+## Recalculer, signaler, demander
+
+Trois régimes, selon la nature de ce qui change :
+
+1. **Recalculer sans demander : tout ce qui est fonction des paramètres.** Une cote obtenue par une contrainte
+   (r2 = r1 + montant, cadres du support à la marge des montants posés, largeur du Reuleaux, apothème) ou par un
+   optimum (distance des tiges) n'est jamais un choix : si le fichier s'en écarte, `apply` le corrige, et toute
+   pièce dérivée suit quand un paramètre qui la borne change (Rh, côté court, montant, joint de colle,
+   supportDouille, trouR, rayon des tiges…). Il en va de même de ce qui recopie un paramètre dans le fichier :
+   repères de perçage, rectangle de débit de la couronne, repères de montants de `#supportPlein`, commentaire du
+   joint de colle. Annonce ces corrections dans le résumé (avant → après), sans demander.
+2. **Signaler : ce que le script ne sait pas faire ou n'a pas pu vérifier.** Avertissements d'`extract` (pièce
+   retouchée à la main qui ne suit plus le modèle, translate hors bissectrice), alertes de `check`, travail
+   manuel restant (étape 6 ci-dessous), hypothèses de hauteur du 3D.
+3. **Demander : les choix de conception.** Les paramètres primaires (`hexagone_rayon`, `tranche_cote_court`,
+   section des montants, `support_marge`, `colle_epaisseur`, rayons des disques et des trous, hauteurs) ne
+   changent que sur demande ; une demande qui contredit une contrainte (par ex. côté long imposé indépendamment
+   du montant), le choix bois/complet pour le 3D et l'écrasement du fichier source se demandent.
+
+Une cote dérivée ne reste figée que si l'utilisateur l'a imposée explicitement (nombre dans `params.json`) ;
+`check` le rappelle alors par une alerte.
 
 ## Modifier les proportions
 
 1. `extract` le fichier courant (ne pars pas des valeurs par défaut : l'utilisateur a pu retoucher le SVG).
    Transmets les avertissements : un écart signifie qu'une pièce ne suit plus le modèle.
 2. Traduis la demande en paramètres. Les cotes de l'utilisateur sont en mm : multiplie par 10. Ne change que
-   ce qui est demandé ; le reste suit par les contraintes. Si la demande contredit une contrainte (par ex.
-   côté long imposé indépendamment du montant), explique le conflit et demande quoi privilégier.
-3. Si le Reuleaux ou le supportDouille change, mets `tige_distance` à `"auto"` sauf instruction contraire.
+   les paramètres primaires demandés ; les cotes dérivées suivent (voir ci-dessus).
+3. Laisse `tige_distance` à `"auto"` (valeur rendue par `extract`), sauf cote imposée par l'utilisateur.
 4. `check` : aucune alerte bloquante (montant plus large que sa face, tige qui déborde, support auto-sécant).
 5. `apply` vers un **nouveau fichier** sauf demande explicite d'écraser. Le script met à jour les defs, les
-   cercles, les repères de perçage des tiges et le rectangle de débit de la couronne.
+   cercles, les repères de perçage des tiges, le rectangle de débit de la couronne, le translate et le
+   commentaire du joint de colle, et les repères de montants de `#supportPlein`.
 6. Préviens de ce qui reste manuel : l'imbrication des supports sur la planche (3ᵉ SVG, positions fixes),
    la position du Reuleaux dans le 2ᵉ SVG si sa taille augmente, la `viewBox` si les pièces débordent, et le
    bloc `reuleaux-frame` (relance la skill `reuleaux-frame` si le Reuleaux a changé).

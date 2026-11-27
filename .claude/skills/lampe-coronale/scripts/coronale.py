@@ -83,7 +83,8 @@ DEFAULTS = {
     "trouR_rayon": 175,
     "reuleaux_debord": 5,            # cercle inscrit du Reuleaux - rayon supportDouille
     "tige_rayon": 45,
-    "tige_distance": 280,            # distance centre lampe -> axe de la tige ; "auto" = optimum
+    "tige_distance": "auto",         # distance centre lampe -> axe de la tige ; cote dérivée : "auto" = optimum
+                                     # (un nombre = valeur imposée explicitement par l'utilisateur)
     "epaisseur": 200,                # épaisseur de toutes les plaques
     "montant_hauteur": 1800,
     "z_support": 0,
@@ -154,6 +155,16 @@ def colle_translation(p):
     return mul(u(210), g)
 
 
+COLLE_COMMENT_RE = r"<!--[^>]*joint de colle de\s*(" + r"[0-9]+(?:[.,][0-9]+)?" + r")\s*mm[^>]*-->"
+
+
+def colle_comment(p):
+    """Commentaire HTML écrit par apply avant #secteurCouronne : rend lisible l'épaisseur du joint."""
+    g = p.get("colle_epaisseur", 0) or 0
+    return ("<!-- tranche + montant collé sur sa face ; translate = joint de colle de %s mm le long de la "
+            "bissectrice (1er SVG seulement) ; écrit par coronale.py apply -->" % f(g / 10).replace(".", ","))
+
+
 def translate_attr(p):
     t = colle_translation(p)
     return "translate(%s,%s)" % (f(t[0]), f(t[1]))
@@ -206,24 +217,56 @@ def montant_d(p):
 
 
 def support_geom(p):
-    """Points clés du support (cadres autour des montants à 180° et 240°)."""
+    """Points clés du support (cadres autour des montants à 180° et 240°).
+
+    Chaque cadre entoure son montant tel qu'il est posé dans le 1er SVG, joint de colle compris : le montant à
+    180° porte la translation t du secteur de base, celui à 240° la même tournée de 60°. Dans le repère local
+    (radial, tangentiel) de chaque montant, les deux décalages valent (g·√3/2, g/2) : les cadres reculent de
+    g·√3/2 vers l'extérieur et glissent de g/2 vers les angles croissants. Le support n'est pas translaté en
+    bloc (les deux cadres ne bougent pas dans la même direction) : son contour est recalculé, courbes comprises."""
     d = derived(p)
     r1, r2 = d["r1"], d["r2"]
     m, w, rt = p["support_marge"], p["montant_largeur"], p["support_retrait"]
-    ri, ro = r1 - m, r2 + m
+    cg = p.get("colle_epaisseur", 0) or 0
+    s, h = cg * SQ3 / 2, cg / 2              # décalage radial / tangentiel du montant (joint de colle)
+    ri, ro = r1 + s - m, r2 + s + m
+    lo, hi = h - m, h + w + m                # bornes tangentielles du cadre
     g = {}
-    g["S"] = pt(ri, -m, 180)                 # coin intérieur du cadre 1
-    g["A0"] = pt(ro, -m, 180)
-    g["A"] = pt(ro, w + m - rt, 180)         # début de la cubique
-    g["B"] = pt(ro, -m, 240)                 # coin extérieur du cadre 2
+    g["S"] = pt(ri, lo, 180)                 # coin intérieur du cadre 1
+    g["A0"] = pt(ro, lo, 180)
+    g["A"] = pt(ro, hi - rt, 180)            # début de la cubique
+    g["B"] = pt(ro, lo, 240)                 # coin extérieur du cadre 2
     chord = norm(sub(g["B"], g["A"]))
     g["C1"] = add(g["A"], mul(t_(180), p["support_poignee_debut"] * chord))
     g["C2"] = sub(g["B"], mul(t_(240), p["support_poignee_fin"] * chord))
-    g["B1"] = pt(ro, w + m, 240)
-    g["B2"] = pt(ri, w + m, 240)
-    g["Q0"] = pt(ri, -m, 240)                # début de la quadratique
+    g["B1"] = pt(ro, hi, 240)
+    g["B2"] = pt(ri, hi, 240)
+    g["Q0"] = pt(ri, lo, 240)                # début de la quadratique
     g["QC"] = mul(u(210), ri / math.cos(math.radians(30)))  # intersection des côtés intérieurs
     return g
+
+
+def support_marges(p, sg):
+    """Marges réelles des cadres du support autour des montants placés comme dans le 1er SVG (joint compris).
+    Cadre 1 : montant k=0 (180°) ; cadre 2 : montant k=1 (240°), côté extérieur limité par B/B1."""
+    M1 = placed(montant_points(p, 180), p, 0)
+    M2 = placed(montant_points(p, 180), p, 1)
+
+    def loc(q, theta):                       # coordonnées (radiale, tangentielle) autour de theta
+        return (q[0] * u(theta)[0] + q[1] * u(theta)[1], q[0] * t_(theta)[0] + q[1] * t_(theta)[1])
+
+    m1 = [loc(q, 180) for q in M1]
+    m2 = [loc(q, 240) for q in M2]
+    S, A0, B, B1 = loc(sg["S"], 180), loc(sg["A0"], 180), loc(sg["B"], 240), loc(sg["B1"], 240)
+    return {
+        "cadre1_interieure": min(q[0] for q in m1) - S[0],
+        "cadre1_exterieure": A0[0] - max(q[0] for q in m1),
+        "cadre1_cote_bas": min(q[1] for q in m1) - S[1],
+        "cadre2_interieure": min(q[0] for q in m2) - loc(sg["Q0"], 240)[0],
+        "cadre2_exterieure": B[0] - max(q[0] for q in m2),
+        "cadre2_cote_bas": min(q[1] for q in m2) - B[1],
+        "cadre2_cote_haut": B1[1] - max(q[1] for q in m2),
+    }
 
 
 def support_d(p):
@@ -400,17 +443,20 @@ def check(p):
     apo = d["hexagone_apotheme"]
     g = p.get("colle_epaisseur", 0) or 0
     t = colle_translation(p)
-    s, m = g * SQ3 / 2, p["support_marge"]
     rep["colle"] = {"epaisseur": g, "translate_tranche_base": translate_attr(p),
-                    "apotheme_hexagone": round(apo, 3),
-                    "marges_support_effectives": {"interieure": round(m + s, 3), "exterieure": round(m - s, 3),
-                                                  "cote_tranche": round(m + g / 2, 3),
-                                                  "cote_oppose": round(m - g / 2, 3)}}
+                    "apotheme_hexagone": round(apo, 3)}
     if g:
         ok("Joint de colle %.1f mm : tranches et montants translatés de (%.3f, %.3f), hexagone d'apothème %.1f"
            % (g / 10, t[0], t[1], apo))
-    if min(m - s, m - g / 2) < 0:
-        warn("Le joint de colle fait sortir les montants de leur cadre de support.")
+    # Marges réelles du support autour des montants posés (joint compris) : doivent valoir support_marge
+    sg = support_geom(p)
+    marges = support_marges(p, sg)
+    rep["support_marges_reelles"] = {k: round(v, 3) for k, v in marges.items()}
+    if max(abs(v - p["support_marge"]) for v in marges.values()) > 0.01:
+        warn("Les cadres du support ne sont pas à la marge %s des montants posés : %s"
+             % (p["support_marge"], rep["support_marges_reelles"]))
+    else:
+        ok("Support : cadres à %.1f mm des montants posés (joint de colle compris)" % (p["support_marge"] / 10))
     if el["z_douille_haut"] > p["z_couronne"]:
         if el["douille_rayon"] > apo:
             warn("La douille (rayon %.1f) ne passe pas dans l'hexagone (apothème %.1f)." % (el["douille_rayon"], apo))
@@ -425,8 +471,8 @@ def check(p):
                    "distance_optimale": round(ropt, 2), "jeu_mini_optimal": round(sopt, 2)}
     if min(cl.values()) <= 0:
         warn("La tige déborde (jeu ≤ 0) : %s" % cl)
-    if abs(ropt - p["tige_distance"]) > 5:
-        warn("tige_distance (%.1f) s'écarte de l'optimum (%.1f) de plus de 0,5 mm."
+    if abs(ropt - p["tige_distance"]) > 0.5:
+        warn("tige_distance imposée (%.1f) ≠ optimum (%.1f) : mettre \"auto\" sauf choix explicite de l'utilisateur."
              % (p["tige_distance"], ropt))
     if p["tige_distance"] - p["tige_rayon"] < apo:
         warn("La tige mord sur l'hexagone central.")
@@ -517,25 +563,6 @@ def extract(src):
     if abs((r2 - r1) - p["montant_epaisseur"]) > 0.01:
         notes.append("Incohérence : côté long - côté court (%.3f) ≠ épaisseur du montant (%.3f)"
                      % (r2 - r1, p["montant_epaisseur"]))
-    sp = parse_path(attr(src, "support", "d"))
-    S = sp[0][1][0]
-    p["support_marge"] = round(r1 - abs(S[0]), 3)
-    A = sp[2][1][0]
-    p["support_retrait"] = round(p["montant_largeur"] + p["support_marge"] + A[1], 3)
-    c1, c2, B = sp[3][1]
-    chord = norm(sub(B, A))
-    p["support_poignee_debut"] = round(norm(sub(c1, A)) / chord, 6)
-    p["support_poignee_fin"] = round(norm(sub(B, c2)) / chord, 6)
-    cy = float(attr(src, "tige", "cy"))
-    cx = float(attr(src, "tige", "cx"))
-    p["tige_distance"] = round(math.hypot(cx, cy), 3)
-    p["tige_rayon"] = float(attr(src, "tige", "r"))
-    p["support_douille_rayon"] = float(attr(src, "supportDouille", "r"))
-    p["trouSD_rayon"] = float(attr(src, "trouSD", "r"))
-    p["trouR_rayon"] = float(attr(src, "trouR", "r"))
-    rl = parse_path(attr(src, "reuleaux", "d"))
-    W = rl[1][1][0][0]
-    p["reuleaux_debord"] = round(W * (1 - 1 / SQ3) - p["support_douille_rayon"], 3)
     # Joint de colle : un seul translate, sur le groupe #secteurCouronne (tranche + montant) des <defs>,
     # que seul le 1er SVG utilise (6 rotations). Les plans de débit utilisent #trancheCouronne / #montant.
     for el in ("trancheCouronne", "montant"):
@@ -557,6 +584,52 @@ def extract(src):
                          "l'hexagone central n'est plus régulier et les joints ne sont pas parallèles. "
                          "Pour un joint de %.2f mm : translate(%s,%s)"
                          % (f(t0[0]), f(t0[1]), ang, g / 10, f(good[0]), f(good[1])))
+    # Support : ses cadres entourent les montants posés (joint de colle compris), voir support_geom.
+    # S = (r1 + s - m, h - m)@180 et A = (r2 + s + m, h + w + m - retrait)@180, avec s = g√3/2, h = g/2.
+    s_, h_ = g * SQ3 / 2, g / 2
+    sp = parse_path(attr(src, "support", "d"))
+    S = sp[0][1][0]
+    m_rad = r1 + s_ - abs(S[0])              # marge radiale (côté intérieur du cadre 1)
+    m_tan = S[1] + h_                        # marge tangentielle (côté bas du cadre 1)
+    p["support_marge"] = round(m_rad, 3)
+    if abs(m_rad - m_tan) > 0.5:
+        if g > 1e-9 and abs((r1 - abs(S[0])) - S[1]) < 0.5:
+            p["support_marge"] = round(r1 - abs(S[0]), 3)
+            notes.append("#support est encore dessiné sans le joint de colle (cadres autour des montants non "
+                         "translatés) : marge relue %.1f ; apply le déforme pour suivre les montants"
+                         % p["support_marge"])
+        else:
+            notes.append("#support : marge radiale (%.1f) ≠ marge tangentielle (%.1f)" % (m_rad, m_tan))
+    m_ = p["support_marge"]
+    A = sp[2][1][0]
+    hi = p["montant_largeur"] + m_ + (h_ if abs(m_rad - m_tan) <= 0.5 else 0)
+    p["support_retrait"] = round(hi + A[1], 3)
+    c1, c2, B = sp[3][1]
+    chord = norm(sub(B, A))
+    p["support_poignee_debut"] = round(norm(sub(c1, A)) / chord, 6)
+    p["support_poignee_fin"] = round(norm(sub(B, c2)) / chord, 6)
+    cy = float(attr(src, "tige", "cy"))
+    cx = float(attr(src, "tige", "cx"))
+    # La distance des tiges est une cote dérivée (optimum des jeux) : extract rend "auto" et signale l'écart
+    # éventuel du fichier, que apply corrige. Une valeur imposée se met à la main dans params.json.
+    p["_tige_distance_fichier"] = round(math.hypot(cx, cy), 3)
+    p["tige_distance"] = "auto"
+    p["tige_rayon"] = float(attr(src, "tige", "r"))
+    p["support_douille_rayon"] = float(attr(src, "supportDouille", "r"))
+    p["trouSD_rayon"] = float(attr(src, "trouSD", "r"))
+    p["trouR_rayon"] = float(attr(src, "trouR", "r"))
+    rl = parse_path(attr(src, "reuleaux", "d"))
+    W = rl[1][1][0][0]
+    p["reuleaux_debord"] = round(W * (1 - 1 / SQ3) - p["support_douille_rayon"], 3)
+    # Commentaire du joint de colle (la valeur en mm n'apparaît pas dans le translate) : doit concorder
+    cm = re.search(COLLE_COMMENT_RE, src)
+    if cm and abs(float(cm.group(1).replace(",", ".")) * 10 - g) > 0.05:
+        notes.append("Le commentaire annonce un joint de colle de %s mm mais le translate de #secteurCouronne "
+                     "vaut %.2f mm (apply réécrit le commentaire d'après colle_epaisseur)" % (cm.group(1), g / 10))
+    ropt = round(tige_optimum(p)[0], 1)
+    if abs(p["_tige_distance_fichier"] - ropt) > 0.5:
+        notes.append("Tiges à %.1f mm dans le fichier, optimum %.2f mm : apply les replace à l'optimum "
+                     "(tige_distance \"auto\")" % (p["_tige_distance_fichier"] / 10, ropt / 10))
     # Vérifie que la régénération redonne bien les chemins du fichier
     for el, fn in (("trancheCouronne", tranche_d), ("montant", montant_d), ("support", support_d),
                    ("reuleaux", reuleaux_d)):
@@ -599,6 +672,27 @@ def apply(p, src):
     if not re.search(r'<g[^>]*\bid="secteurCouronne"[^>]*\btransform=', src):
         raise SystemExit("ERREUR : groupe #secteurCouronne (avec transform) introuvable")
     src = set_attr(src, "secteurCouronne", "transform", translate_attr(p))
+    # commentaire lisible du joint de colle, juste avant #secteurCouronne (la valeur en mm n'est pas dans le translate)
+    com = colle_comment(p)
+    src, n = re.subn(r'<!--[^>]*joint de colle[^>]*-->(\s*<g[^>]*\bid="secteurCouronne")',
+                     lambda mm: com + mm.group(1), src, count=1)
+    if not n:
+        src = re.sub(r'(\n([ \t]*))(<g[^>]*\bid="secteurCouronne")',
+                     lambda mm: mm.group(1) + com + mm.group(1) + mm.group(3), src, count=1)
+    # 3e SVG : repères des montants sur le support, à leur position réelle (même translation que
+    # #secteurCouronne, puis rotation de 60° pour le second). Recopie dérivée, jamais éditée à la main.
+    m = re.search(r'(<g id="supportPlein">)(.*?)(</g>)', src, re.S)
+    if m:
+        body, n = m.group(2), [0]
+
+        def montant_use(mm):
+            k = n[0]
+            n[0] += 1
+            tr = translate_attr(p) if k == 0 else "rotate(60) " + translate_attr(p)
+            return '<use href="#montant" fill="none" transform="%s" />' % tr
+
+        body = re.sub(r'<use href="#montant"[^>]*/>', montant_use, body)
+        src = src[:m.start(2)] + body + src[m.end(2):]
     src = set_attr(src, "tige", "cy", f(-p["tige_distance"]))
     src = set_attr(src, "tige", "cx", "0")
     src = set_attr(src, "tige", "r", f(p["tige_rayon"]))

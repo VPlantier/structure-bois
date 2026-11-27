@@ -45,9 +45,13 @@ T = g·u(210) = (−g·√3/2, −g/2) [(−8,660 ; −5)] : un seul `translate(
 - Couche de colle (3D, structure complète) sur le rayon θ = 180° + 60°·k : ρ ∈ [Rh + g√3/2, r2 + g√3/2],
   τ ∈ [−g/2, g/2], z de la couronne. Elle touche le côté long de la tranche k−1 d'un côté, le côté court de la
   tranche k puis son montant de l'autre.
-- Montant translaté avec sa tranche ; support, Reuleaux, supportDouille et tiges non translatés. Les marges du
-  cadre de support deviennent m ± g√3/2 en radial et m ± g/2 en tangentiel.
-- SVG 2 à 4 : aucun translate (pièces dessinées comme sans joint).
+- Montant translaté avec sa tranche ; Reuleaux, supportDouille et tiges non translatés.
+- Support **déformé** (pas translaté) : ses cadres suivent les montants posés, voir § Support. Le montant k=0
+  (180°) porte t = g·u(210), le montant k=1 (240°) porte rot60(t) = g·u(270) ; dans le repère local de chacun,
+  le décalage vaut (s, h) = (g√3/2, g/2) [(8,66 ; 5)].
+- SVG 2 et 4 : aucun translate (tranches et montants dessinés comme sans joint). SVG 3 : le contour `#support`
+  est la pièce réelle (déformée) et les repères `#montant` de `#supportPlein` portent la translation du joint
+  (`translate(t)` et `rotate(60) translate(t)`, écrits par `apply`).
 
 ## Montant (`#montant`)
 
@@ -57,21 +61,28 @@ Rectangle radial [r1, r2] × tangentiel [0, w] autour du rayon 180°, du côté 
 ## Support (`#support`)
 
 On repère un point par (ρ radial, τ tangentiel) autour d'un rayon θ : P = ρ·u(θ) + τ·u(θ+90°).
-Cadre autour du montant à θ : ρ ∈ [r1 − m, r2 + m], τ ∈ [−m, w + m] (300 × 400 actuellement).
+Le cadre entoure le montant **posé** (joint de colle compris), décalé de (s, h) = (g√3/2, g/2) dans son repère
+local (voir § Joint de colle ; s = h = 0 sans joint). On note ri = r1 + s − m [508,66], ro = r2 + s + m [808,66],
+τ ∈ [h − m, h + w + m] [−45 → 355]. Cadre : 300 × 400.
 Une pièce de support relie les cadres à 180° (cadre 1) et 240° (cadre 2) ; trois pièces à 0/120/240°.
+Les deux cadres ont le même décalage local, mais pas la même direction dans le plan : la pièce n'est pas une
+translation de la version sans joint, son contour (dont les courbes) est recalculé.
 
 Contour (sens du chemin) :
 
-1. S = (r1−m, −m)@180 [(−500, 50)] → (r2+m, −m)@180 : côté du cadre 1, complet.
-2. → A = (r2+m, w+m−retrait)@180 : côté extérieur du cadre 1, raccourci de `retrait` [40].
-3. Cubique A → B = (r2+m, −m)@240 (coin extérieur du cadre 2). Poignées tangentes aux côtés extérieurs :
-   C1 = A + h1·u(270), C2 = B − h2·u(330). h1, h2 = fractions de la corde |AB| [0,2546 et 0,2654 de 505,2].
-4. → (r2+m, w+m)@240 → (r1−m, w+m)@240 → Q0 = (r1−m, −m)@240 : trois côtés complets du cadre 2.
+1. S = (ri, h−m)@180 [(−508,66, 45)] → (ro, h−m)@180 : côté du cadre 1, complet.
+2. → A = (ro, h+w+m−retrait)@180 : côté extérieur du cadre 1, raccourci de `retrait` [40].
+3. Cubique A → B = (ro, h−m)@240 (coin extérieur du cadre 2). Poignées tangentes aux côtés extérieurs :
+   C1 = A + h1·u(270), C2 = B − h2·u(330). h1, h2 = fractions de la corde |AB| [0,2545 et 0,2654 de 514,9].
+4. → (ro, h+w+m)@240 → (ri, h+w+m)@240 → Q0 = (ri, h−m)@240 : trois côtés complets du cadre 2.
 5. Quadratique Q0 → S, point de contrôle = intersection des côtés intérieurs des deux cadres
-   = (r1−m)/cos 30° · u(210) [(−500, −288,7)]. Tangente aux deux côtés intérieurs.
+   = ri/cos 30° · u(210) [(−508,66, −293,7)]. Tangente aux deux côtés intérieurs.
 
-Les raccords sont donc G1 (lisses) aux quatre extrémités des courbes. Quand r1 change, les cadres suivent
-les montants et les courbes sont recalculées avec les mêmes fractions de poignées.
+Les raccords sont donc G1 (lisses) aux quatre extrémités des courbes. Quand r1 ou le joint de colle change, les
+cadres suivent les montants et les courbes sont recalculées avec les mêmes fractions de poignées.
+`extract` relit m et retrait en tenant compte de (s, h) ; s'il trouve un support dessiné sans joint alors que
+`#secteurCouronne` en porte un, il le signale (apply le déforme). `check` rapporte les marges réelles
+(`support_marges_reelles`) mesurées sur les montants posés.
 
 ## supportDouille, Reuleaux, trous
 
@@ -104,8 +115,9 @@ Jeux (bord à bord, tige comprise) en fonction de D :
 - Reuleaux : distance aux arcs adjacents au sommet, W − √((W/2)² + (W/(2√3) + D)²), moins le rayon ;
 - trouR : D − R_trouR − rayon.
 
-Règle de conception : D maximise le minimum de ces jeux (`tige_distance: "auto"`). Actuellement D = 280
-pour un optimum de 289,8 avec le joint de colle (285,2 sans ; jeu mini 51,8 contre 61,6). Pour que l'optimum soit atteignable, le Reuleaux doit
+Règle de conception : D maximise le minimum de ces jeux (`tige_distance: "auto"`) ; c'est une cote dérivée,
+recalculée par `apply` dès qu'une pièce qui la borne change (joint de colle compris). Avec le joint de 1 mm,
+D = 289,8 (285,2 sans joint), jeu mini 6,16 mm, à égalité entre la tranche et le Reuleaux. Pour que l'optimum soit atteignable, le Reuleaux doit
 être orienté sommet vers la tige et assez grand pour que tige + trouR tiennent entre le centre et le sommet.
 
 ## Plans de débit (SVG 2 à 4)

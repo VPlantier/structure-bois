@@ -21,10 +21,10 @@
 	<defs>
 		<path id="trancheCouronne" d="M -200 0 l -350 0 l 0 -548.483 l 175 -101.036 l 275 476.314 z" fill="none" stroke="black" />
 		<path id="montant" d="M -550 0 l -200 0 l 0 -300 l 200 0 z" fill="none" stroke="black" />
-		<path id="support" d="M -500 50 l -300 0 l 0 -360 c 0 -128.6 240.57 -290.77 356.699 -357.820 l 346.410 -200 l 150 259.808 l -346.410 200 q -206.699 119.338 -206.699 458.013 z" fill="none" stroke="black" />
-		<circle id="tige" cx="0" cy="-280" r="45" fill="none" stroke="black" />
+		<path id="support" d="M -508.66 45 l -300 0 l 0 -360 c 0 -131.059 247.008 -294.49 365.359 -362.82 l 346.41 -200 l 150 259.808 l -346.41 200 q -215.359 124.338 -215.359 463.013 z" fill="none" stroke="black" />
+		<circle id="tige" cx="0" cy="-289.8" r="45" fill="none" stroke="black" />
 		<path id="reuleaux" d="M 0 -416.638 a 721.638 721.638 0 0 1 360.819 624.957 a 721.638 721.638 0 0 1 -721.638 0 a 721.638 721.638 0 0 1 360.819 -624.957 z" fill="none" />
-		<!-- tranche + montant collé sur sa face ; translate = joint de colle de 1 mm (1er SVG seulement) -->
+		<!-- tranche + montant collé sur sa face ; translate = joint de colle de 1 mm le long de la bissectrice (1er SVG seulement) ; écrit par coronale.py apply -->
 		<g id="secteurCouronne" transform="translate(-8.66,-5)">
 			<use href="#trancheCouronne" />
 			<use href="#montant" />
@@ -74,17 +74,17 @@
 	<use href="#tige"  transform="translate(1320,420) rotate(240)" />
 	<use x="1320" y="420" href="#trouR"  />
 	<circle cx="1320" cy="420" r="3" fill="none" stroke="black"/>
-	<circle cx="0" cy="-280" r="3" fill="none" stroke="black" transform="translate(1320,420) rotate(120)"/>
-	<circle cx="0" cy="-280" r="3" fill="none" stroke="black" transform="translate(1320,420) rotate(240)"/>
-	<circle cx="0" cy="-280" r="3" fill="none" stroke="black" transform="translate(1320,420)"/>
+	<circle cx="0" cy="-289.8" r="3" fill="none" stroke="black" transform="translate(1320,420) rotate(120)"/>
+	<circle cx="0" cy="-289.8" r="3" fill="none" stroke="black" transform="translate(1320,420) rotate(240)"/>
+	<circle cx="0" cy="-289.8" r="3" fill="none" stroke="black" transform="translate(1320,420)"/>
 </svg>
 <svg width="150mm" height="150mm" viewBox="-1050 0 1500 1500" xmlns="http://w3.org">
 	<rect x="-1000" y="20" width="1400" height="1400" fill="none" stroke="black" />	
 	<defs>
 	  <g id="supportPlein">
 	    <use href="#support" />
-	    <use href="#montant" fill="none" />
-	    <use href="#montant" fill="none" transform="rotate(60)" />
+	    <use href="#montant" fill="none" transform="translate(-8.66,-5)" />
+	    <use href="#montant" fill="none" transform="rotate(60) translate(-8.66,-5)" />
 	  </g>
 	</defs>
 	<use href="#supportPlein" transform="translate(-380,-310) rotate(-131)" />
@@ -101,9 +101,9 @@
 	<use href="#tige" transform="rotate(120)" />
 	<use href="#tige" transform="rotate(240)" />
 	<use href="#trouR" />
-	<circle cx="0" cy="-280" r="3" fill="none" stroke="black" transform="rotate(120)"/>
-	<circle cx="0" cy="-280" r="3" fill="none" stroke="black" transform="rotate(240)"/>
-	<circle cx="0" cy="-280" r="3" fill="none" stroke="black"/>
+	<circle cx="0" cy="-289.8" r="3" fill="none" stroke="black" transform="rotate(120)"/>
+	<circle cx="0" cy="-289.8" r="3" fill="none" stroke="black" transform="rotate(240)"/>
+	<circle cx="0" cy="-289.8" r="3" fill="none" stroke="black"/>
 	<circle cx="0" cy="0" r="3" fill="none" stroke="black"/>
 </svg>
 </body>
